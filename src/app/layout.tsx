@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Blank Page",
-  description: "A simple blank white page",
+  title: "Computer Vision",
+  description: "A deep dive into computer vision",
 };
 
 export default function RootLayout({
@@ -25,7 +25,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#FDFBEF]`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#FAFAF8]`}
       >
         {children}
       </body>
