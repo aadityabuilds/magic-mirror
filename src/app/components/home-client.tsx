@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useQueryState, parseAsBoolean } from "nuqs";
 import { ShaderBlurOverlay } from "@/components/shader-blur-overlay";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Mic, Eye } from "lucide-react";
+import { Sparkles, Video, Mic } from "lucide-react";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -117,7 +117,7 @@ interface TokenResponse {
   room_name: string;
 }
 
-type ConnectionMode = "voice" | "vision";
+type ConnectionMode = "voice" | "realtime";
 
 export function HomeClient() {
   const [isBlurActive, setIsBlurActive] = useQueryState(
@@ -138,11 +138,7 @@ export function HomeClient() {
     setError(null);
     setStatus("Fetching token...");
 
-    const endpoints: Record<ConnectionMode, string> = {
-      voice: "/api/token",
-      vision: "/api/token/realtime-vision",
-    };
-    const endpoint = endpoints[mode];
+    const endpoint = mode === "realtime" ? "/api/token/realtime" : "/api/token";
 
     try {
       console.log(`Fetching token from ${endpoint}...`);
@@ -182,8 +178,37 @@ export function HomeClient() {
     setIsConnected(false);
     setIsBlurActive(false);
     setConnectionMode(null);
-    setStatus(null);
   }, [setIsBlurActive]);
+
+  const titleContainerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.2,
+        delayChildren: 0.1,
+      },
+    },
+  };
+
+  const wordVariants = {
+    hidden: { 
+      opacity: 0, 
+      filter: "blur(15px)",
+      y: 10,
+      scale: 0.95
+    },
+    visible: { 
+      opacity: 1, 
+      filter: "blur(0px)",
+      y: 0,
+      scale: 1,
+      transition: {
+        duration: 1.2,
+        ease: [0.22, 1, 0.36, 1] as const
+      }
+    },
+  };
 
   return (
     <div className="relative flex flex-col items-center justify-center min-h-screen overflow-hidden bg-black text-white p-4">
@@ -196,7 +221,7 @@ export function HomeClient() {
           token={token}
           connect={true}
           audio={true}
-          video={connectionMode === "vision"}
+          video={connectionMode === "realtime"}
           onDisconnected={handleDisconnect}
           onError={(error) => {
             console.error("LiveKit error:", error);
@@ -215,33 +240,41 @@ export function HomeClient() {
           className="absolute inset-0 z-40 pointer-events-none"
         >
           <RoomAudioRenderer />
-          <MediaPublisher onStatusChange={setStatus} enableVideo={connectionMode === "vision"} />
+          <MediaPublisher onStatusChange={setStatus} enableVideo={connectionMode === "realtime"} />
           <AnimatePresence>
-            {connectionMode === "vision" && <LocalVideoPreview />}
+            {connectionMode === "realtime" && <LocalVideoPreview />}
           </AnimatePresence>
         </LiveKitRoom>
       )}
 
-      <main className="relative z-50 flex flex-col items-center gap-8 text-center">
+      <main className="relative z-50 flex flex-col items-center gap-8 text-center pointer-events-none">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
+          variants={titleContainerVariants}
+          initial="hidden"
+          animate="visible"
         >
-          <h1 className="text-5xl md:text-7xl font-light tracking-tighter mb-4">
-            Computer <span className="italic font-serif">Vision</span>
+          <h1 className="text-5xl md:text-7xl font-light tracking-tighter mb-4 flex gap-x-4">
+            <motion.span variants={wordVariants} className="inline-block">
+              Computer
+            </motion.span>
+            <motion.span variants={wordVariants} className="inline-block italic font-serif">
+              Vision
+            </motion.span>
           </h1>
-          <p className="text-zinc-400 max-w-md mx-auto text-lg font-light">
+          <motion.p 
+            variants={wordVariants}
+            className="text-zinc-400 max-w-md mx-auto text-lg font-light"
+          >
             {isConnected 
-              ? connectionMode === "vision"
-                ? "Show things to your AI - it can see you!"
+              ? connectionMode === "realtime"
+                ? "Speak and show things to your AI assistant"
                 : "Speak to interact with your voice assistant"
-              : "Voice and vision AI assistants powered by LiveKit and Gemini."}
-          </p>
+              : "Replicating advanced SwiftUI shader effects in Next.js using SVG filters and Framer Motion."}
+          </motion.p>
         </motion.div>
 
         {!isConnected && (
-          <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex flex-col sm:flex-row gap-4 pointer-events-auto">
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -272,12 +305,12 @@ export function HomeClient() {
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={() => connectToAgent("vision")}
+              onClick={() => connectToAgent("realtime")}
               disabled={isConnecting}
-              className="group relative px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-full font-medium transition-all hover:from-cyan-400 hover:to-blue-500 flex items-center gap-2 overflow-hidden shadow-[0_0_20px_rgba(6,182,212,0.4)] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="group relative px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-full font-medium transition-all hover:from-purple-500 hover:to-pink-500 flex items-center gap-2 overflow-hidden shadow-[0_0_20px_rgba(168,85,247,0.4)] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span className="relative z-10 flex items-center gap-2">
-                {isConnecting && connectionMode === "vision" ? (
+                {isConnecting && connectionMode === "realtime" ? (
                   <>
                     Connecting...
                     <motion.div
@@ -289,8 +322,8 @@ export function HomeClient() {
                   </>
                 ) : (
                   <>
-                    <Eye size={18} />
-                    Vision + Voice
+                    <Video size={18} />
+                    Talk Realtime
                   </>
                 )}
               </span>
@@ -302,17 +335,17 @@ export function HomeClient() {
           <motion.p
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-red-400 text-sm"
+            className="text-red-400 text-sm pointer-events-auto"
           >
             {error}
           </motion.p>
         )}
 
-        {status && (
+        {status && isConnected && (
           <motion.p
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-green-400 text-sm"
+            className="text-green-400 text-sm pointer-events-auto"
           >
             {status}
           </motion.p>
