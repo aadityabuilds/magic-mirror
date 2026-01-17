@@ -25,40 +25,30 @@ const WAKE_WORD = {
   publicPath: "/Hey-mirror_en_wasm_v4_0_0.ppn",
   label: "Hey Mirror"
 };
-const WAKE_WORD_DISPLAY = "Hey Mirror";
 
-function MediaPublisher({ 
-  onStatusChange, 
-  enableVideo 
-}: { 
-  onStatusChange?: (status: string) => void;
+function MediaPublisher({
+  enableVideo
+}: {
   enableVideo?: boolean;
 }) {
   const room = useRoomContext();
 
   useEffect(() => {
     console.log("MediaPublisher mounted, room state:", room.state, "enableVideo:", enableVideo);
-    onStatusChange?.(`Room state: ${room.state}`);
 
     const enableMedia = async () => {
       try {
         console.log("Requesting microphone access...");
-        onStatusChange?.("Requesting microphone...");
         await room.localParticipant.setMicrophoneEnabled(true);
         console.log("Microphone enabled successfully");
-        
+
         if (enableVideo) {
           console.log("Requesting camera access...");
-          onStatusChange?.("Enabling camera...");
           await room.localParticipant.setCameraEnabled(true);
           console.log("Camera enabled successfully");
-          onStatusChange?.("Camera & mic enabled - speak now!");
-        } else {
-          onStatusChange?.("Microphone enabled - speak now!");
         }
       } catch (err) {
         console.error("Failed to enable media:", err);
-        onStatusChange?.(`Media error: ${err instanceof Error ? err.message : 'Unknown error'}`);
       }
     };
 
@@ -68,19 +58,16 @@ function MediaPublisher({
 
     const handleConnected = () => {
       console.log("Room connected!");
-      onStatusChange?.("Connected to room");
       enableMedia();
     };
 
     const handleDisconnected = () => {
       console.log("Room disconnected");
-      onStatusChange?.("Disconnected");
     };
 
     const handleParticipantConnected = (participant: unknown) => {
       const p = participant as { identity: string };
       console.log("Participant connected:", p.identity);
-      onStatusChange?.(`Agent joined: ${p.identity}`);
     };
 
     room.on("connected", handleConnected);
@@ -92,7 +79,7 @@ function MediaPublisher({
       room.off("disconnected", handleDisconnected);
       room.off("participantConnected", handleParticipantConnected);
     };
-  }, [room, onStatusChange, enableVideo]);
+  }, [room, enableVideo]);
 
   return null;
 }
@@ -337,7 +324,7 @@ export function HomeClient() {
   const [token, setToken] = useState<string | null>(null);
   const [serverUrl, setServerUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
+  const [wakeWordDetected, setWakeWordDetected] = useState(false);
   
   // Porcupine wake word detection
   const {
@@ -358,7 +345,6 @@ export function HomeClient() {
     setIsConnecting(true);
     setConnectionMode(mode);
     setError(null);
-    setStatus("Fetching token...");
 
     const endpoints: Record<ConnectionMode, string> = {
       voice: "/api/token",
@@ -382,15 +368,13 @@ export function HomeClient() {
       const data: TokenResponse = await response.json();
       console.log("Token received, connecting to:", data.server_url);
       console.log("Room name:", data.room_name);
-      
-      setStatus("Connecting to room...");
+
       setServerUrl(data.server_url);
       setToken(data.participant_token);
       setIsConnected(true);
       setIsBlurActive(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Connection failed");
-      setStatus(null);
       setConnectionMode(null);
       console.error("Connection error:", err);
     } finally {
@@ -445,11 +429,12 @@ export function HomeClient() {
   useEffect(() => {
     if (keywordDetection !== null && !connectingAfterWakeWordRef.current) {
       console.log(`Wake word "${keywordDetection.label}" detected!`);
+      setWakeWordDetected(true);
       connectingAfterWakeWordRef.current = true;
-      
+
       // Stop Porcupine and wait for mic to be released before connecting
       stopPorcupine();
-      
+
       // Small delay to ensure microphone is fully released before LiveKit uses it
       setTimeout(() => {
         connectToAgent("vision");
@@ -478,9 +463,9 @@ export function HomeClient() {
     setIsConnected(false);
     setIsBlurActive(false);
     setConnectionMode(null);
-    setStatus(null);
+    setWakeWordDetected(false);
     connectingAfterWakeWordRef.current = false;
-    
+
     // Resume wake word listening after disconnect with delay to ensure mic is released
     setTimeout(() => {
       if (isPorcupineLoaded && !isPorcupineListening && PICOVOICE_ACCESS_KEY) {
@@ -520,7 +505,7 @@ export function HomeClient() {
           className="absolute inset-0 z-40 pointer-events-none"
         >
           <RoomAudioRenderer />
-          <MediaPublisher onStatusChange={setStatus} enableVideo={connectionMode === "vision"} />
+          <MediaPublisher enableVideo={connectionMode === "vision"} />
           <AgentAudioOrb />
           <TranscriptDisplay />
           <AnimatePresence>
@@ -533,10 +518,10 @@ export function HomeClient() {
         {/* Idle Orb - shown when not connected */}
         {!isConnected && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            transition={{ duration: 0.5 }}
+            initial={{ opacity: 0, scale: 0.8, y: 300 }}
+            animate={wakeWordDetected ? { opacity: 1, scale: 1, y: 100 } : { opacity: 0, scale: 0.8, y: 300 }}
+            exit={{ opacity: 0, scale: 0.8, y: 300 }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
             className="mb-4"
           >
             <SiriOrb
@@ -556,132 +541,8 @@ export function HomeClient() {
           </motion.div>
         )}
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-        >
-          <h1 className="text-5xl md:text-7xl font-light tracking-tighter mb-4">
-            Computer <span className="italic font-serif">Vision</span>
-          </h1>
-          <p className="text-zinc-400 max-w-md mx-auto text-lg font-light">
-            {isConnected 
-              ? connectionMode === "vision"
-                ? "Show things to your AI - it can see you!"
-                : "Speak to interact with your voice assistant"
-              : "Voice and vision AI assistants powered by LiveKit and Gemini."}
-          </p>
-        </motion.div>
 
-        {/* Wake word listening indicator */}
-        <AnimatePresence mode="wait">
-          {!isConnected && !isConnecting && (
-            <motion.div
-              key="wake-word-indicator"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.3 }}
-              className="flex flex-col items-center gap-3"
-            >
-              {isPorcupineListening ? (
-                <div className="flex items-center gap-2 text-cyan-400">
-                  <motion.div
-                    animate={{ 
-                      scale: [1, 1.2, 1],
-                      opacity: [0.5, 1, 0.5] 
-                    }}
-                    transition={{ 
-                      duration: 1.5, 
-                      repeat: Infinity,
-                      ease: "easeInOut"
-                    }}
-                  >
-                    <AudioLines size={24} />
-                  </motion.div>
-                  <span className="text-lg font-light">
-                    Say &quot;<span className="font-medium text-white">{WAKE_WORD_DISPLAY}</span>&quot; to start
-                  </span>
-                </div>
-              ) : !isPorcupineLoaded && PICOVOICE_ACCESS_KEY ? (
-                <div className="flex items-center gap-2 text-zinc-500">
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                  >
-                    <AudioLines size={20} />
-                  </motion.div>
-                  <span className="text-sm">Loading wake word detection...</span>
-                </div>
-              ) : !PICOVOICE_ACCESS_KEY ? (
-                <div className="text-yellow-500 text-sm text-center max-w-xs">
-                  <p>Wake word detection disabled.</p>
-                  <p className="text-zinc-500 text-xs mt-1">
-                    Set NEXT_PUBLIC_PICOVOICE_ACCESS_KEY in .env.local
-                  </p>
-                </div>
-              ) : null}
-            </motion.div>
-          )}
-        </AnimatePresence>
 
-        {!isConnected && (
-          <div className="flex flex-col sm:flex-row gap-4">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => connectToAgent("voice")}
-              disabled={isConnecting}
-              className="group relative px-8 py-4 bg-white text-black rounded-full font-medium transition-all hover:bg-zinc-200 flex items-center gap-2 overflow-hidden shadow-[0_0_20px_rgba(255,255,255,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <span className="relative z-10 flex items-center gap-2">
-                {isConnecting && connectionMode === "voice" ? (
-                  <>
-                    Connecting...
-                    <motion.div
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                    >
-                      <Sparkles className="text-purple-600" size={18} />
-                    </motion.div>
-                  </>
-                ) : (
-                  <>
-                    <Mic size={18} />
-                    Voice Only
-                  </>
-                )}
-              </span>
-            </motion.button>
-
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => connectToAgent("vision")}
-              disabled={isConnecting}
-              className="group relative px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-full font-medium transition-all hover:from-cyan-400 hover:to-blue-500 flex items-center gap-2 overflow-hidden shadow-[0_0_20px_rgba(6,182,212,0.4)] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <span className="relative z-10 flex items-center gap-2">
-                {isConnecting && connectionMode === "vision" ? (
-                  <>
-                    Connecting...
-                    <motion.div
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                    >
-                      <Sparkles className="text-white" size={18} />
-                    </motion.div>
-                  </>
-                ) : (
-                  <>
-                    <Eye size={18} />
-                    Vision + Voice
-                  </>
-                )}
-              </span>
-            </motion.button>
-          </div>
-        )}
 
         {error && (
           <motion.p
@@ -693,15 +554,6 @@ export function HomeClient() {
           </motion.p>
         )}
 
-        {status && (
-          <motion.p
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-green-400 text-sm"
-          >
-            {status}
-          </motion.p>
-        )}
       </main>
 
       {/* Decorative background grid */}
