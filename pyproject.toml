@@ -8,4 +8,5 @@ dependencies = [
     "livekit-agents[google,mcp,openai,silero,turn-detector]~=1.3",
     "livekit-plugins-noise-cancellation~=0.2",
     "python-dotenv",
+    "exa_py>=1.0.0",
 ]
