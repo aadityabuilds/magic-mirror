@@ -17,6 +17,8 @@ export const metadata: Metadata = {
   description: "A deep dive into computer vision",
 };
 
+import { NuqsAdapter } from "nuqs/adapters/next/app";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -25,9 +27,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#FAFAF8]`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-black`}
       >
-        {children}
+        <NuqsAdapter>
+          {children}
+        </NuqsAdapter>
       </body>
     </html>
   );
