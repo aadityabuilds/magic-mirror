@@ -4,7 +4,7 @@ import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useQueryState, parseAsBoolean } from "nuqs";
 import { ShaderBlurOverlay } from "@/components/shader-blur-overlay";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Mic, Eye } from "lucide-react";
+import { Sparkles, Mic, Eye, AudioLines } from "lucide-react";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
@@ -14,6 +14,17 @@ import {
 } from "@livekit/components-react";
 import { Track, RoomEvent, TranscriptionSegment, Participant } from "livekit-client";
 import "@livekit/components-styles";
+import { usePorcupine } from "@picovoice/porcupine-react";
+
+// Porcupine Access Key - set in .env.local as NEXT_PUBLIC_PICOVOICE_ACCESS_KEY
+const PICOVOICE_ACCESS_KEY = process.env.NEXT_PUBLIC_PICOVOICE_ACCESS_KEY || "";
+
+// Custom wake word - "Hey Mirror"
+const WAKE_WORD = {
+  publicPath: "/Hey-mirror_en_wasm_v4_0_0.ppn",
+  label: "Hey Mirror"
+};
+const WAKE_WORD_DISPLAY = "Hey Mirror";
 
 function MediaPublisher({ 
   onStatusChange, 
@@ -241,6 +252,21 @@ export function HomeClient() {
   const [serverUrl, setServerUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  
+  // Porcupine wake word detection
+  const {
+    keywordDetection,
+    isLoaded: isPorcupineLoaded,
+    isListening: isPorcupineListening,
+    error: porcupineError,
+    init: initPorcupine,
+    start: startPorcupine,
+    stop: stopPorcupine,
+    release: releasePorcupine,
+  } = usePorcupine();
+  
+  const porcupineInitializedRef = useRef(false);
+  const connectingAfterWakeWordRef = useRef(false);
 
   const connectToAgent = useCallback(async (mode: ConnectionMode) => {
     setIsConnecting(true);
@@ -286,6 +312,74 @@ export function HomeClient() {
     }
   }, [setIsBlurActive]);
 
+  // Initialize Porcupine on mount
+  useEffect(() => {
+    const setupPorcupine = async () => {
+      if (porcupineInitializedRef.current || !PICOVOICE_ACCESS_KEY) {
+        if (!PICOVOICE_ACCESS_KEY) {
+          console.warn("Porcupine: No access key provided. Set NEXT_PUBLIC_PICOVOICE_ACCESS_KEY in .env.local");
+        }
+        return;
+      }
+      
+      try {
+        console.log("Initializing Porcupine wake word detection...");
+        // Initialize with built-in keyword and local model file
+        await initPorcupine(
+          PICOVOICE_ACCESS_KEY,
+          [WAKE_WORD],
+          { publicPath: "/porcupine_params.pv", forceWrite: true }
+        );
+        porcupineInitializedRef.current = true;
+        console.log("Porcupine initialized successfully");
+      } catch (err) {
+        console.error("Failed to initialize Porcupine:", err);
+        setError(`Wake word init failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      }
+    };
+    
+    setupPorcupine();
+    
+    return () => {
+      if (porcupineInitializedRef.current) {
+        releasePorcupine();
+        porcupineInitializedRef.current = false;
+      }
+    };
+  }, [initPorcupine, releasePorcupine]);
+
+  // Start listening once Porcupine is loaded
+  useEffect(() => {
+    if (isPorcupineLoaded && !isPorcupineListening && !isConnected && !isConnecting) {
+      startPorcupine();
+    }
+  }, [isPorcupineLoaded, isPorcupineListening, isConnected, isConnecting, startPorcupine]);
+
+  // Handle wake word detection
+  useEffect(() => {
+    if (keywordDetection !== null && !connectingAfterWakeWordRef.current) {
+      console.log(`Wake word "${keywordDetection.label}" detected!`);
+      connectingAfterWakeWordRef.current = true;
+      stopPorcupine();
+      connectToAgent("vision");
+    }
+  }, [keywordDetection, stopPorcupine, connectToAgent]);
+
+  // Stop Porcupine when connecting/connected
+  useEffect(() => {
+    if ((isConnecting || isConnected) && isPorcupineListening) {
+      stopPorcupine();
+    }
+  }, [isConnecting, isConnected, isPorcupineListening, stopPorcupine]);
+
+  // Log Porcupine errors
+  useEffect(() => {
+    if (porcupineError) {
+      console.error("Porcupine error:", porcupineError);
+      setError(`Wake word error: ${porcupineError.message}`);
+    }
+  }, [porcupineError]);
+
   const handleDisconnect = useCallback(() => {
     setToken(null);
     setServerUrl(null);
@@ -293,7 +387,14 @@ export function HomeClient() {
     setIsBlurActive(false);
     setConnectionMode(null);
     setStatus(null);
-  }, [setIsBlurActive]);
+    connectingAfterWakeWordRef.current = false;
+    // Resume wake word listening after disconnect
+    setTimeout(() => {
+      if (isPorcupineLoaded && !isPorcupineListening) {
+        startPorcupine();
+      }
+    }, 1000);
+  }, [setIsBlurActive, isPorcupineLoaded, isPorcupineListening, startPorcupine]);
 
   return (
     <div className="relative flex flex-col items-center justify-center min-h-screen overflow-hidden bg-black text-white p-4">
@@ -350,6 +451,58 @@ export function HomeClient() {
               : "Voice and vision AI assistants powered by LiveKit and Gemini."}
           </p>
         </motion.div>
+
+        {/* Wake word listening indicator */}
+        <AnimatePresence mode="wait">
+          {!isConnected && !isConnecting && (
+            <motion.div
+              key="wake-word-indicator"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3 }}
+              className="flex flex-col items-center gap-3"
+            >
+              {isPorcupineListening ? (
+                <div className="flex items-center gap-2 text-cyan-400">
+                  <motion.div
+                    animate={{ 
+                      scale: [1, 1.2, 1],
+                      opacity: [0.5, 1, 0.5] 
+                    }}
+                    transition={{ 
+                      duration: 1.5, 
+                      repeat: Infinity,
+                      ease: "easeInOut"
+                    }}
+                  >
+                    <AudioLines size={24} />
+                  </motion.div>
+                  <span className="text-lg font-light">
+                    Say &quot;<span className="font-medium text-white">{WAKE_WORD_DISPLAY}</span>&quot; to start
+                  </span>
+                </div>
+              ) : !isPorcupineLoaded && PICOVOICE_ACCESS_KEY ? (
+                <div className="flex items-center gap-2 text-zinc-500">
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                  >
+                    <AudioLines size={20} />
+                  </motion.div>
+                  <span className="text-sm">Loading wake word detection...</span>
+                </div>
+              ) : !PICOVOICE_ACCESS_KEY ? (
+                <div className="text-yellow-500 text-sm text-center max-w-xs">
+                  <p>Wake word detection disabled.</p>
+                  <p className="text-zinc-500 text-xs mt-1">
+                    Set NEXT_PUBLIC_PICOVOICE_ACCESS_KEY in .env.local
+                  </p>
+                </div>
+              ) : null}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {!isConnected && (
           <div className="flex flex-col sm:flex-row gap-4">
