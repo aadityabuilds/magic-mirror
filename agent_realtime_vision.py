@@ -53,6 +53,10 @@ class RealtimeVisionAssistant(Agent):
             llm=google.realtime.RealtimeModel(
                 voice="Puck",
                 temperature=0.8,
+                # Enable transcription of agent's audio output for live captions
+                output_audio_transcription={},
+                # Enable transcription of user's audio input (may have slight delay)
+                input_audio_transcription={},
             ),
         )
 

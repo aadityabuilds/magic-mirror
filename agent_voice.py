@@ -65,6 +65,8 @@ async def voice_agent(ctx: agents.JobContext):
         vad=silero.VAD.load(),
         # Turn Detection: Multilingual model for natural conversation flow
         turn_detection=MultilingualModel(),
+        # Enable TTS-aligned transcription for word-level sync (Cartesia supports this)
+        use_tts_aligned_transcript=True,
     )
 
     await session.start(

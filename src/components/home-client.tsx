@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useQueryState, parseAsBoolean } from "nuqs";
 import { ShaderBlurOverlay } from "@/components/shader-blur-overlay";
 import { motion, AnimatePresence } from "framer-motion";
@@ -12,7 +12,7 @@ import {
   VideoTrack,
   useTracks,
 } from "@livekit/components-react";
-import { Track } from "livekit-client";
+import { Track, RoomEvent, TranscriptionSegment, Participant } from "livekit-client";
 import "@livekit/components-styles";
 
 function MediaPublisher({ 
@@ -106,6 +106,113 @@ function LocalVideoPreview() {
       />
       <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/50 rounded-full text-xs text-white/80">
         You
+      </div>
+    </motion.div>
+  );
+}
+
+interface TranscriptEntry {
+  id: string;
+  text: string;
+  isFinal: boolean;
+  participantIdentity: string;
+  isAgent: boolean;
+  timestamp: number;
+}
+
+function TranscriptDisplay() {
+  const room = useRoomContext();
+  const [transcripts, setTranscripts] = useState<Map<string, TranscriptEntry>>(new Map());
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!room) return;
+
+    const handleTranscription = (
+      segments: TranscriptionSegment[],
+      participant?: Participant
+    ) => {
+      setTranscripts((prev) => {
+        const newMap = new Map(prev);
+        
+        for (const segment of segments) {
+          const identity = participant?.identity || "unknown";
+          const isAgent = identity.includes("agent") || !participant?.isLocal;
+          
+          newMap.set(segment.id, {
+            id: segment.id,
+            text: segment.text,
+            isFinal: segment.final,
+            participantIdentity: identity,
+            isAgent,
+            timestamp: Date.now(),
+          });
+        }
+        
+        return newMap;
+      });
+    };
+
+    room.on(RoomEvent.TranscriptionReceived, handleTranscription);
+
+    return () => {
+      room.off(RoomEvent.TranscriptionReceived, handleTranscription);
+    };
+  }, [room]);
+
+  // Auto-scroll to bottom when new transcripts arrive
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [transcripts]);
+
+  // Sort transcripts by timestamp
+  const sortedTranscripts = Array.from(transcripts.values())
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  if (sortedTranscripts.length === 0) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 20 }}
+      className="fixed bottom-6 left-6 right-6 md:left-auto md:right-auto md:bottom-8 md:w-[500px] md:left-1/2 md:-translate-x-1/2 bg-black/70 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl z-50 overflow-hidden"
+    >
+      <div className="px-4 py-2 border-b border-white/10 flex items-center gap-2">
+        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+        <span className="text-xs text-zinc-400 font-medium">Live Transcript</span>
+      </div>
+      
+      <div 
+        ref={scrollRef}
+        className="p-4 max-h-48 overflow-y-auto space-y-3 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent"
+      >
+        {sortedTranscripts.map((entry) => (
+          <div
+            key={entry.id}
+            className={`flex flex-col ${entry.isAgent ? "items-start" : "items-end"}`}
+          >
+            <span className="text-[10px] text-zinc-500 mb-1 font-medium">
+              {entry.isAgent ? "Agent" : "You"}
+            </span>
+            <div
+              className={`px-3 py-2 rounded-2xl max-w-[85%] ${
+                entry.isAgent
+                  ? "bg-zinc-800/80 text-white rounded-bl-sm"
+                  : "bg-blue-600/80 text-white rounded-br-sm"
+              } ${!entry.isFinal ? "opacity-70" : ""}`}
+            >
+              <p className="text-sm leading-relaxed">
+                {entry.text}
+                {!entry.isFinal && (
+                  <span className="inline-block ml-1 animate-pulse">...</span>
+                )}
+              </p>
+            </div>
+          </div>
+        ))}
       </div>
     </motion.div>
   );
@@ -216,6 +323,7 @@ export function HomeClient() {
         >
           <RoomAudioRenderer />
           <MediaPublisher onStatusChange={setStatus} enableVideo={connectionMode === "vision"} />
+          <TranscriptDisplay />
           <AnimatePresence>
             {connectionMode === "vision" && <LocalVideoPreview />}
           </AnimatePresence>
