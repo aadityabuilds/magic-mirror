@@ -15,6 +15,7 @@ import {
 import { Track, RoomEvent, TranscriptionSegment, Participant } from "livekit-client";
 import "@livekit/components-styles";
 import { usePorcupine } from "@picovoice/porcupine-react";
+import SiriOrb from "@/components/smoothui/siri-orb";
 
 // Porcupine Access Key - set in .env.local as NEXT_PUBLIC_PICOVOICE_ACCESS_KEY
 const PICOVOICE_ACCESS_KEY = process.env.NEXT_PUBLIC_PICOVOICE_ACCESS_KEY || "";
@@ -197,7 +198,7 @@ function TranscriptDisplay() {
   return (
     <motion.div
       initial={{ opacity: 0 }}
-      animate={{ opacity: isActive ? 1 : 0 }}
+      animate={{ opacity: 1 }}
       transition={{ duration: 0.3 }}
       className="fixed top-[58%] left-1/2 -translate-x-1/2 w-full max-w-2xl mx-auto text-center px-6 z-50 pointer-events-none"
     >
@@ -209,11 +210,8 @@ function TranscriptDisplay() {
           return (
             <motion.span
               key={`${index}-${word}`}
-              initial={{ opacity: 0, y: 5 }}
-              animate={{
-                opacity,
-                y: 0,
-              }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity }}
               transition={{
                 duration: 0.15,
                 ease: "easeOut"
@@ -228,6 +226,94 @@ function TranscriptDisplay() {
           );
         })}
       </p>
+    </motion.div>
+  );
+}
+
+// Agent Audio Orb - reacts to agent's voice
+function AgentAudioOrb() {
+  const room = useRoomContext();
+  const [agentAudioStream, setAgentAudioStream] = useState<MediaStream | null>(null);
+  const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  
+  // Get remote audio tracks (agent's audio)
+  const audioTracks = useTracks([Track.Source.Microphone], { onlySubscribed: true });
+  const remoteAudioTrack = audioTracks.find(
+    (track) => !track.participant.isLocal && track.publication?.track
+  );
+
+  // Create MediaStream from agent's audio track
+  useEffect(() => {
+    if (remoteAudioTrack?.publication?.track) {
+      const track = remoteAudioTrack.publication.track;
+      const mediaStreamTrack = track.mediaStreamTrack;
+      
+      if (mediaStreamTrack) {
+        const stream = new MediaStream([mediaStreamTrack]);
+        setAgentAudioStream(stream);
+        setIsAgentSpeaking(true);
+        console.log("Agent audio stream created");
+      }
+    } else {
+      setAgentAudioStream(null);
+      setIsAgentSpeaking(false);
+    }
+    
+    return () => {
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
+    };
+  }, [remoteAudioTrack]);
+
+  // Listen for track mute/unmute events to detect when agent is speaking
+  useEffect(() => {
+    if (!room) return;
+
+    const handleTrackMuted = () => {
+      setIsAgentSpeaking(false);
+    };
+
+    const handleTrackUnmuted = () => {
+      if (remoteAudioTrack) {
+        setIsAgentSpeaking(true);
+      }
+    };
+
+    room.on(RoomEvent.TrackMuted, handleTrackMuted);
+    room.on(RoomEvent.TrackUnmuted, handleTrackUnmuted);
+
+    return () => {
+      room.off(RoomEvent.TrackMuted, handleTrackMuted);
+      room.off(RoomEvent.TrackUnmuted, handleTrackUnmuted);
+    };
+  }, [room, remoteAudioTrack]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.8 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.8 }}
+      transition={{ duration: 0.5, ease: "easeOut" }}
+      className="fixed top-[30%] left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none"
+    >
+      <SiriOrb
+        size="180px"
+        audioStream={agentAudioStream}
+        isListening={isAgentSpeaking}
+        sensitivity={0.9}
+        minScale={1}
+        maxScale={1.3}
+        smoothing={0.92}
+        colors={{
+          bg: "oklch(10% 0.02 264.695)",
+          c1: "oklch(70% 0.25 200)", // Cyan
+          c2: "oklch(75% 0.20 280)", // Purple
+          c3: "oklch(72% 0.22 180)", // Teal
+        }}
+      />
     </motion.div>
   );
 }
@@ -360,8 +446,14 @@ export function HomeClient() {
     if (keywordDetection !== null && !connectingAfterWakeWordRef.current) {
       console.log(`Wake word "${keywordDetection.label}" detected!`);
       connectingAfterWakeWordRef.current = true;
+      
+      // Stop Porcupine and wait for mic to be released before connecting
       stopPorcupine();
-      connectToAgent("vision");
+      
+      // Small delay to ensure microphone is fully released before LiveKit uses it
+      setTimeout(() => {
+        connectToAgent("vision");
+      }, 300);
     }
   }, [keywordDetection, stopPorcupine, connectToAgent]);
 
@@ -388,12 +480,14 @@ export function HomeClient() {
     setConnectionMode(null);
     setStatus(null);
     connectingAfterWakeWordRef.current = false;
-    // Resume wake word listening after disconnect
+    
+    // Resume wake word listening after disconnect with delay to ensure mic is released
     setTimeout(() => {
-      if (isPorcupineLoaded && !isPorcupineListening) {
+      if (isPorcupineLoaded && !isPorcupineListening && PICOVOICE_ACCESS_KEY) {
+        console.log("Resuming wake word detection...");
         startPorcupine();
       }
-    }, 1000);
+    }, 1500);
   }, [setIsBlurActive, isPorcupineLoaded, isPorcupineListening, startPorcupine]);
 
   return (
@@ -427,6 +521,7 @@ export function HomeClient() {
         >
           <RoomAudioRenderer />
           <MediaPublisher onStatusChange={setStatus} enableVideo={connectionMode === "vision"} />
+          <AgentAudioOrb />
           <TranscriptDisplay />
           <AnimatePresence>
             {connectionMode === "vision" && <LocalVideoPreview />}
@@ -435,6 +530,32 @@ export function HomeClient() {
       )}
 
       <main className="relative z-50 flex flex-col items-center gap-8 text-center">
+        {/* Idle Orb - shown when not connected */}
+        {!isConnected && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.5 }}
+            className="mb-4"
+          >
+            <SiriOrb
+              size="160px"
+              isListening={isPorcupineListening}
+              sensitivity={0.5}
+              minScale={1}
+              maxScale={1.15}
+              smoothing={0.95}
+              colors={{
+                bg: "oklch(8% 0.01 264.695)",
+                c1: "oklch(60% 0.20 200)", // Cyan (dimmer)
+                c2: "oklch(65% 0.15 280)", // Purple (dimmer)
+                c3: "oklch(62% 0.18 180)", // Teal (dimmer)
+              }}
+            />
+          </motion.div>
+        )}
+
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
