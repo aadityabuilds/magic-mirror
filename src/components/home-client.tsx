@@ -115,15 +115,16 @@ interface TranscriptEntry {
   id: string;
   text: string;
   isFinal: boolean;
-  participantIdentity: string;
   isAgent: boolean;
   timestamp: number;
 }
 
 function TranscriptDisplay() {
   const room = useRoomContext();
-  const [transcripts, setTranscripts] = useState<Map<string, TranscriptEntry>>(new Map());
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [currentText, setCurrentText] = useState<string>("");
+  const [displayedWords, setDisplayedWords] = useState<string[]>([]);
+  const [isActive, setIsActive] = useState(false);
+  const fadeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (!room) return;
@@ -132,88 +133,90 @@ function TranscriptDisplay() {
       segments: TranscriptionSegment[],
       participant?: Participant
     ) => {
-      setTranscripts((prev) => {
-        const newMap = new Map(prev);
+      for (const segment of segments) {
+        const identity = participant?.identity || "unknown";
+        const isAgent = identity.includes("agent") || !participant?.isLocal;
         
-        for (const segment of segments) {
-          const identity = participant?.identity || "unknown";
-          const isAgent = identity.includes("agent") || !participant?.isLocal;
-          
-          newMap.set(segment.id, {
-            id: segment.id,
-            text: segment.text,
-            isFinal: segment.final,
-            participantIdentity: identity,
-            isAgent,
-            timestamp: Date.now(),
-          });
+        // Only show agent transcripts
+        if (!isAgent) continue;
+        
+        // Update the current text
+        setCurrentText(segment.text);
+        setIsActive(true);
+        
+        // Clear any existing fade timeout
+        if (fadeTimeoutRef.current) {
+          clearTimeout(fadeTimeoutRef.current);
         }
         
-        return newMap;
-      });
+        // If this is a final segment, start fade out after a delay
+        if (segment.final) {
+          fadeTimeoutRef.current = setTimeout(() => {
+            setIsActive(false);
+            // Clear text after fade animation
+            setTimeout(() => {
+              setCurrentText("");
+              setDisplayedWords([]);
+            }, 500);
+          }, 2000);
+        }
+      }
     };
 
     room.on(RoomEvent.TranscriptionReceived, handleTranscription);
 
     return () => {
       room.off(RoomEvent.TranscriptionReceived, handleTranscription);
+      if (fadeTimeoutRef.current) {
+        clearTimeout(fadeTimeoutRef.current);
+      }
     };
   }, [room]);
 
-  // Auto-scroll to bottom when new transcripts arrive
+  // Update displayed words when current text changes
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (currentText) {
+      const words = currentText.split(/\s+/).filter(w => w.length > 0);
+      setDisplayedWords(words);
     }
-  }, [transcripts]);
+  }, [currentText]);
 
-  // Sort transcripts by timestamp
-  const sortedTranscripts = Array.from(transcripts.values())
-    .sort((a, b) => a.timestamp - b.timestamp);
-
-  if (sortedTranscripts.length === 0) return null;
+  if (!currentText || displayedWords.length === 0) return null;
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 20 }}
-      className="fixed bottom-6 left-6 right-6 md:left-auto md:right-auto md:bottom-8 md:w-[500px] md:left-1/2 md:-translate-x-1/2 bg-black/70 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl z-50 overflow-hidden"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: isActive ? 1 : 0 }}
+      transition={{ duration: 0.3 }}
+      className="fixed top-[58%] left-1/2 -translate-x-1/2 w-full max-w-2xl mx-auto text-center px-6 z-50 pointer-events-none"
     >
-      <div className="px-4 py-2 border-b border-white/10 flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-        <span className="text-xs text-zinc-400 font-medium">Live Transcript</span>
-      </div>
-      
-      <div 
-        ref={scrollRef}
-        className="p-4 max-h-48 overflow-y-auto space-y-3 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent"
-      >
-        {sortedTranscripts.map((entry) => (
-          <div
-            key={entry.id}
-            className={`flex flex-col ${entry.isAgent ? "items-start" : "items-end"}`}
-          >
-            <span className="text-[10px] text-zinc-500 mb-1 font-medium">
-              {entry.isAgent ? "Agent" : "You"}
-            </span>
-            <div
-              className={`px-3 py-2 rounded-2xl max-w-[85%] ${
-                entry.isAgent
-                  ? "bg-zinc-800/80 text-white rounded-bl-sm"
-                  : "bg-blue-600/80 text-white rounded-br-sm"
-              } ${!entry.isFinal ? "opacity-70" : ""}`}
+      <p className="text-xl md:text-2xl font-light leading-relaxed tracking-wide">
+        {displayedWords.map((word, index) => {
+          const isLastWord = index === displayedWords.length - 1;
+          const opacity = isLastWord ? 1 : 0.5;
+
+          return (
+            <motion.span
+              key={`${index}-${word}`}
+              initial={{ opacity: 0, y: 5 }}
+              animate={{
+                opacity,
+                y: 0,
+              }}
+              transition={{
+                duration: 0.15,
+                ease: "easeOut"
+              }}
+              className="inline-block mr-[0.3em]"
+              style={{
+                color: isLastWord ? '#ffffff' : 'rgba(255, 255, 255, 0.5)',
+              }}
             >
-              <p className="text-sm leading-relaxed">
-                {entry.text}
-                {!entry.isFinal && (
-                  <span className="inline-block ml-1 animate-pulse">...</span>
-                )}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
+              {word}
+            </motion.span>
+          );
+        })}
+      </p>
     </motion.div>
   );
 }
