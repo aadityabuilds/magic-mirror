@@ -1,22 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Magic Mirror - Voice & Vision AI Assistant
 
-## Getting Started
+A Next.js frontend with LiveKit-powered Python AI agents for voice and vision interaction.
 
-First, run the development server:
+## Features
+
+- **Voice Assistant**: STT-LLM-TTS pipeline using OpenAI GPT-4.1-mini
+- **Vision Assistant**: Gemini Live with real-time video input and vision capabilities
+- **MCP Integration**: Optional Model Context Protocol server support for additional tools
+
+## Setup
+
+### 1. Frontend (Next.js)
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. Python Agents
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Install dependencies:
+```bash
+uv pip install -r requirements.txt
+```
+
+Download model files (first time only):
+```bash
+uv run agent_voice.py download-files
+uv run agent_realtime_vision.py download-files
+```
+
+Run agents:
+```bash
+# Voice assistant (STT-LLM-TTS)
+uv run agent_voice.py dev
+
+# Vision assistant (Gemini Live with camera)
+uv run agent_realtime_vision.py dev
+```
+
+### 3. Environment Variables
+
+Create `.env.local` with:
+
+```bash
+# LiveKit Configuration
+LIVEKIT_API_KEY=your_api_key_here
+LIVEKIT_API_SECRET=your_api_secret_here
+LIVEKIT_URL=wss://your-livekit-server.livekit.cloud
+
+# AI Model APIs
+OPENAI_API_KEY=your_openai_key_here
+GOOGLE_API_KEY=your_google_gemini_key_here
+
+# MCP Server (Optional - for additional tools)
+MCP_SERVER_URL=https://your-mcp-server.com/mcp
+```
+
+## Usage
+
+1. Start the Next.js frontend
+2. Choose between "Voice Only" or "Vision + Voice" modes
+3. The agents will automatically connect and respond to your voice/commands
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 

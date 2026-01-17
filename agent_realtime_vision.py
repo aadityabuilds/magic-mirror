@@ -17,19 +17,21 @@ Run with: uv run agent_realtime_vision.py dev
 Required: Set GOOGLE_API_KEY in your .env.local file
 """
 
+import os
 from dotenv import load_dotenv
 
 from livekit import agents, rtc
 from livekit.agents import AgentServer, AgentSession, Agent, room_io, mcp
 from livekit.plugins import google, noise_cancellation
 
+load_dotenv(".env.local")
+
 # =============================================================================
 # MCP SERVER CONFIGURATION
-# Paste your MCP server URL below to enable tools from that server
+# Set MCP_SERVER_URL in .env.local to enable tools from that server
+# Example: MCP_SERVER_URL=https://your-mcp-server.com/mcp
 # =============================================================================
-MCP_SERVER_URL = "https://9af1e76d340e.ngrok-free.app"  # Must include /sse endpoint for SSE transport
-
-load_dotenv(".env.local")
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "")  # Load from environment
 
 
 class RealtimeVisionAssistant(Agent):
