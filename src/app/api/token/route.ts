@@ -1,4 +1,4 @@
-import { AccessToken } from 'livekit-server-sdk';
+import { AccessToken, RoomServiceClient, AgentDispatchClient } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
@@ -20,6 +20,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Convert wss:// to https:// for API calls
+    const httpUrl = wsUrl.replace('wss://', 'https://');
+
+    // Create room first
+    const roomService = new RoomServiceClient(httpUrl, apiKey, apiSecret);
+    try {
+      await roomService.createRoom({ name: roomName });
+      console.log('Room created:', roomName);
+    } catch (err: unknown) {
+      // Room might already exist, that's ok
+      console.log('Room creation note:', err instanceof Error ? err.message : 'Room may already exist');
+    }
+
+    // Explicitly dispatch the agent to the room
+    const agentDispatch = new AgentDispatchClient(httpUrl, apiKey, apiSecret);
+    try {
+      await agentDispatch.createDispatch(roomName, 'voice-agent');
+      console.log('Agent dispatched to room:', roomName);
+    } catch (err: unknown) {
+      console.error('Agent dispatch error:', err instanceof Error ? err.message : err);
+    }
+
+    // Create token for the user
     const at = new AccessToken(apiKey, apiSecret, {
       identity: participantIdentity,
       name: participantName,
@@ -28,20 +51,12 @@ export async function POST(request: NextRequest) {
 
     at.addGrant({
       roomJoin: true,
+      roomCreate: true,
       room: roomName,
       canPublish: true,
       canSubscribe: true,
       canPublishData: true,
     });
-
-    // Set room configuration to auto-create room and dispatch agent
-    at.roomConfig = {
-      agents: [
-        {
-          agentName: 'voice-agent',
-        },
-      ],
-    };
 
     const token = await at.toJwt();
 

@@ -1,15 +1,72 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { useQueryState, parseAsBoolean } from "nuqs";
-import { ShaderBlurOverlay } from "./shader-blur-overlay";
+import { ShaderBlurOverlay } from "@/components/shader-blur-overlay";
 import { motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
+  useRoomContext,
 } from "@livekit/components-react";
 import "@livekit/components-styles";
+
+function AudioPublisher({ onStatusChange }: { onStatusChange?: (status: string) => void }) {
+  const room = useRoomContext();
+
+  useEffect(() => {
+    console.log("AudioPublisher mounted, room state:", room.state);
+    onStatusChange?.(`Room state: ${room.state}`);
+
+    // Enable microphone when component mounts
+    const enableMic = async () => {
+      try {
+        console.log("Requesting microphone access...");
+        onStatusChange?.("Requesting microphone...");
+        await room.localParticipant.setMicrophoneEnabled(true);
+        console.log("Microphone enabled successfully");
+        onStatusChange?.("Microphone enabled - speak now!");
+      } catch (err) {
+        console.error("Failed to enable microphone:", err);
+        onStatusChange?.(`Mic error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      }
+    };
+
+    if (room.state === "connected") {
+      enableMic();
+    }
+
+    // Listen for connection state changes
+    const handleConnected = () => {
+      console.log("Room connected!");
+      onStatusChange?.("Connected to room");
+      enableMic();
+    };
+
+    const handleDisconnected = () => {
+      console.log("Room disconnected");
+      onStatusChange?.("Disconnected");
+    };
+
+    const handleParticipantConnected = (participant: any) => {
+      console.log("Participant connected:", participant.identity);
+      onStatusChange?.(`Agent joined: ${participant.identity}`);
+    };
+
+    room.on("connected", handleConnected);
+    room.on("disconnected", handleDisconnected);
+    room.on("participantConnected", handleParticipantConnected);
+
+    return () => {
+      room.off("connected", handleConnected);
+      room.off("disconnected", handleDisconnected);
+      room.off("participantConnected", handleParticipantConnected);
+    };
+  }, [room, onStatusChange]);
+
+  return null;
+}
 
 interface TokenResponse {
   server_url: string;
@@ -27,12 +84,15 @@ export function HomeClient() {
   const [token, setToken] = useState<string | null>(null);
   const [serverUrl, setServerUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
 
   const connectToAgent = useCallback(async () => {
     setIsConnecting(true);
     setError(null);
+    setStatus("Fetching token...");
 
     try {
+      console.log("Fetching token from /api/token...");
       const response = await fetch("/api/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -45,12 +105,17 @@ export function HomeClient() {
       }
 
       const data: TokenResponse = await response.json();
+      console.log("Token received, connecting to:", data.server_url);
+      console.log("Room name:", data.room_name);
+      
+      setStatus("Connecting to room...");
       setServerUrl(data.server_url);
       setToken(data.participant_token);
       setIsConnected(true);
       setIsBlurActive(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Connection failed");
+      setStatus(null);
       console.error("Connection error:", err);
     } finally {
       setIsConnecting(false);
@@ -89,7 +154,7 @@ export function HomeClient() {
       scale: 1,
       transition: {
         duration: 1.2,
-        ease: [0.22, 1, 0.36, 1]
+        ease: [0.22, 1, 0.36, 1] as const
       }
     },
   };
@@ -107,9 +172,21 @@ export function HomeClient() {
           audio={true}
           video={false}
           onDisconnected={handleDisconnect}
+          onError={(error) => {
+            console.error("LiveKit error:", error);
+            setError(error.message);
+          }}
+          options={{
+            audioCaptureDefaults: {
+              autoGainControl: true,
+              echoCancellation: true,
+              noiseSuppression: true,
+            },
+          }}
           className="absolute inset-0 z-40 pointer-events-none"
         >
           <RoomAudioRenderer />
+          <AudioPublisher onStatusChange={setStatus} />
         </LiveKitRoom>
       )}
 
@@ -173,6 +250,16 @@ export function HomeClient() {
             className="text-red-400 text-sm pointer-events-auto"
           >
             {error}
+          </motion.p>
+        )}
+
+        {status && isConnected && (
+          <motion.p
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-green-400 text-sm pointer-events-auto"
+          >
+            {status}
           </motion.p>
         )}
       </main>

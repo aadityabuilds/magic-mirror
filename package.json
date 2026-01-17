@@ -6,11 +6,21 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "agent": "node --experimental-strip-types agent.ts dev"
   },
   "dependencies": {
+    "@livekit/agents": "^1.0.36",
+    "@livekit/agents-plugin-livekit": "^1.0.36",
+    "@livekit/agents-plugin-silero": "^1.0.36",
+    "@livekit/components-react": "^2.9.19",
+    "@livekit/components-styles": "^1.2.0",
+    "@livekit/noise-cancellation-node": "^0.1.9",
     "clsx": "^2.1.1",
+    "dotenv": "^17.2.3",
     "framer-motion": "^12.26.2",
+    "livekit-client": "^2.17.0",
+    "livekit-server-sdk": "^2.15.0",
     "lucide-react": "^0.562.0",
     "next": "16.1.1",
     "nuqs": "^2.8.6",
