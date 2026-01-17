@@ -1,0 +1,17 @@
+# LiveKit Agents Python Dependencies
+# Install with: pip install -r requirements.txt
+# Or with uv: uv pip install -r requirements.txt
+
+# Core LiveKit Agents with plugins
+# - silero: Voice Activity Detection
+# - turn-detector: Multilingual turn detection
+# - openai: OpenAI models (for voice pipeline LLM)
+# - google: Gemini Live (the ONLY realtime model with video support!)
+# - mcp: Model Context Protocol for external tool servers
+livekit-agents[silero,turn-detector,openai,google,mcp]~=1.3
+
+# Noise cancellation plugin
+livekit-plugins-noise-cancellation~=0.2
+
+# Environment variable loading
+python-dotenv

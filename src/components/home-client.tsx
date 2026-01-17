@@ -3,43 +3,61 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { useQueryState, parseAsBoolean } from "nuqs";
 import { ShaderBlurOverlay } from "./shader-blur-overlay";
-import { motion } from "framer-motion";
-import { Sparkles } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Sparkles, Mic, Eye } from "lucide-react";
 import {
   LiveKitRoom,
   RoomAudioRenderer,
   useRoomContext,
+  VideoTrack,
+  useTracks,
 } from "@livekit/components-react";
+import { Track } from "livekit-client";
 import "@livekit/components-styles";
 
-function AudioPublisher({ onStatusChange }: { onStatusChange?: (status: string) => void }) {
+function MediaPublisher({ 
+  onStatusChange, 
+  enableVideo 
+}: { 
+  onStatusChange?: (status: string) => void;
+  enableVideo?: boolean;
+}) {
   const room = useRoomContext();
 
   useEffect(() => {
-    console.log("AudioPublisher mounted, room state:", room.state);
+    console.log("MediaPublisher mounted, room state:", room.state, "enableVideo:", enableVideo);
     onStatusChange?.(`Room state: ${room.state}`);
 
-    const enableMic = async () => {
+    const enableMedia = async () => {
       try {
         console.log("Requesting microphone access...");
         onStatusChange?.("Requesting microphone...");
         await room.localParticipant.setMicrophoneEnabled(true);
         console.log("Microphone enabled successfully");
-        onStatusChange?.("Microphone enabled - speak now!");
+        
+        if (enableVideo) {
+          console.log("Requesting camera access...");
+          onStatusChange?.("Enabling camera...");
+          await room.localParticipant.setCameraEnabled(true);
+          console.log("Camera enabled successfully");
+          onStatusChange?.("Camera & mic enabled - speak now!");
+        } else {
+          onStatusChange?.("Microphone enabled - speak now!");
+        }
       } catch (err) {
-        console.error("Failed to enable microphone:", err);
-        onStatusChange?.(`Mic error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        console.error("Failed to enable media:", err);
+        onStatusChange?.(`Media error: ${err instanceof Error ? err.message : 'Unknown error'}`);
       }
     };
 
     if (room.state === "connected") {
-      enableMic();
+      enableMedia();
     }
 
     const handleConnected = () => {
       console.log("Room connected!");
       onStatusChange?.("Connected to room");
-      enableMic();
+      enableMedia();
     };
 
     const handleDisconnected = () => {
@@ -47,9 +65,10 @@ function AudioPublisher({ onStatusChange }: { onStatusChange?: (status: string) 
       onStatusChange?.("Disconnected");
     };
 
-    const handleParticipantConnected = (participant: any) => {
-      console.log("Participant connected:", participant.identity);
-      onStatusChange?.(`Agent joined: ${participant.identity}`);
+    const handleParticipantConnected = (participant: unknown) => {
+      const p = participant as { identity: string };
+      console.log("Participant connected:", p.identity);
+      onStatusChange?.(`Agent joined: ${p.identity}`);
     };
 
     room.on("connected", handleConnected);
@@ -61,9 +80,35 @@ function AudioPublisher({ onStatusChange }: { onStatusChange?: (status: string) 
       room.off("disconnected", handleDisconnected);
       room.off("participantConnected", handleParticipantConnected);
     };
-  }, [room, onStatusChange]);
+  }, [room, onStatusChange, enableVideo]);
 
   return null;
+}
+
+function LocalVideoPreview() {
+  const tracks = useTracks([Track.Source.Camera], { onlySubscribed: false });
+  const localVideoTrack = tracks.find(
+    (track) => track.participant.isLocal && track.source === Track.Source.Camera
+  );
+
+  if (!localVideoTrack) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.9, y: 20 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.9, y: 20 }}
+      className="fixed bottom-6 right-6 w-48 h-36 md:w-64 md:h-48 rounded-2xl overflow-hidden shadow-2xl border border-white/20 z-50"
+    >
+      <VideoTrack
+        trackRef={localVideoTrack}
+        className="w-full h-full object-cover mirror"
+      />
+      <div className="absolute bottom-2 left-2 px-2 py-1 bg-black/50 rounded-full text-xs text-white/80">
+        You
+      </div>
+    </motion.div>
+  );
 }
 
 interface TokenResponse {
@@ -72,6 +117,8 @@ interface TokenResponse {
   room_name: string;
 }
 
+type ConnectionMode = "voice" | "vision";
+
 export function HomeClient() {
   const [isBlurActive, setIsBlurActive] = useQueryState(
     "blur",
@@ -79,19 +126,27 @@ export function HomeClient() {
   );
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  const [connectionMode, setConnectionMode] = useState<ConnectionMode | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [serverUrl, setServerUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
-  const connectToAgent = useCallback(async () => {
+  const connectToAgent = useCallback(async (mode: ConnectionMode) => {
     setIsConnecting(true);
+    setConnectionMode(mode);
     setError(null);
     setStatus("Fetching token...");
 
+    const endpoints: Record<ConnectionMode, string> = {
+      voice: "/api/token",
+      vision: "/api/token/realtime-vision",
+    };
+    const endpoint = endpoints[mode];
+
     try {
-      console.log("Fetching token from /api/token...");
-      const response = await fetch("/api/token", {
+      console.log(`Fetching token from ${endpoint}...`);
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
@@ -114,6 +169,7 @@ export function HomeClient() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Connection failed");
       setStatus(null);
+      setConnectionMode(null);
       console.error("Connection error:", err);
     } finally {
       setIsConnecting(false);
@@ -125,6 +181,7 @@ export function HomeClient() {
     setServerUrl(null);
     setIsConnected(false);
     setIsBlurActive(false);
+    setConnectionMode(null);
     setStatus(null);
   }, [setIsBlurActive]);
 
@@ -139,7 +196,7 @@ export function HomeClient() {
           token={token}
           connect={true}
           audio={true}
-          video={false}
+          video={connectionMode === "vision"}
           onDisconnected={handleDisconnect}
           onError={(error) => {
             console.error("LiveKit error:", error);
@@ -151,11 +208,17 @@ export function HomeClient() {
               echoCancellation: true,
               noiseSuppression: true,
             },
+            videoCaptureDefaults: {
+              resolution: { width: 1280, height: 720, frameRate: 30 },
+            },
           }}
           className="absolute inset-0 z-40 pointer-events-none"
         >
           <RoomAudioRenderer />
-          <AudioPublisher onStatusChange={setStatus} />
+          <MediaPublisher onStatusChange={setStatus} enableVideo={connectionMode === "vision"} />
+          <AnimatePresence>
+            {connectionMode === "vision" && <LocalVideoPreview />}
+          </AnimatePresence>
         </LiveKitRoom>
       )}
 
@@ -170,38 +233,69 @@ export function HomeClient() {
           </h1>
           <p className="text-zinc-400 max-w-md mx-auto text-lg font-light">
             {isConnected 
-              ? "Speak to interact with your voice assistant" 
-              : "Replicating advanced SwiftUI shader effects in Next.js using SVG filters and Framer Motion."}
+              ? connectionMode === "vision"
+                ? "Show things to your AI - it can see you!"
+                : "Speak to interact with your voice assistant"
+              : "Voice and vision AI assistants powered by LiveKit and Gemini."}
           </p>
         </motion.div>
 
         {!isConnected && (
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={connectToAgent}
-            disabled={isConnecting}
-            className="group relative px-8 py-4 bg-white text-black rounded-full font-medium transition-all hover:bg-zinc-200 flex items-center gap-2 overflow-hidden shadow-[0_0_20px_rgba(255,255,255,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <span className="relative z-10 flex items-center gap-2">
-              {isConnecting ? (
-                <>
-                  Connecting...
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                  >
-                    <Sparkles className="text-purple-600" size={18} />
-                  </motion.div>
-                </>
-              ) : (
-                <>
-                  Call Voice Agent
-                  <Sparkles className="text-zinc-500" size={18} />
-                </>
-              )}
-            </span>
-          </motion.button>
+          <div className="flex flex-col sm:flex-row gap-4">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => connectToAgent("voice")}
+              disabled={isConnecting}
+              className="group relative px-8 py-4 bg-white text-black rounded-full font-medium transition-all hover:bg-zinc-200 flex items-center gap-2 overflow-hidden shadow-[0_0_20px_rgba(255,255,255,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="relative z-10 flex items-center gap-2">
+                {isConnecting && connectionMode === "voice" ? (
+                  <>
+                    Connecting...
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                    >
+                      <Sparkles className="text-purple-600" size={18} />
+                    </motion.div>
+                  </>
+                ) : (
+                  <>
+                    <Mic size={18} />
+                    Voice Only
+                  </>
+                )}
+              </span>
+            </motion.button>
+
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => connectToAgent("vision")}
+              disabled={isConnecting}
+              className="group relative px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-full font-medium transition-all hover:from-cyan-400 hover:to-blue-500 flex items-center gap-2 overflow-hidden shadow-[0_0_20px_rgba(6,182,212,0.4)] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="relative z-10 flex items-center gap-2">
+                {isConnecting && connectionMode === "vision" ? (
+                  <>
+                    Connecting...
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                    >
+                      <Sparkles className="text-white" size={18} />
+                    </motion.div>
+                  </>
+                ) : (
+                  <>
+                    <Eye size={18} />
+                    Vision + Voice
+                  </>
+                )}
+              </span>
+            </motion.button>
+          </div>
         )}
 
         {error && (

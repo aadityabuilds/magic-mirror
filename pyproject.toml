@@ -1,0 +1,9 @@
+[project]
+name = "magic-mirror"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "livekit-agents[google,mcp,openai,silero,turn-detector]~=1.3",
+]

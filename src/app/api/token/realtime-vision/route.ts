@@ -1,11 +1,15 @@
 import { AccessToken, RoomServiceClient, AgentDispatchClient } from 'livekit-server-sdk';
 import { NextRequest, NextResponse } from 'next/server';
 
+/**
+ * Token endpoint for Python Realtime Vision Agent
+ * This dispatches to the Python agent with video_input=True capability
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    const roomName = body.room_name ?? `room-${Math.random().toString(36).substring(7)}`;
+    const roomName = body.room_name ?? `vision-${Math.random().toString(36).substring(7)}`;
     const participantIdentity = body.participant_identity ?? `user-${Math.random().toString(36).substring(7)}`;
     const participantName = body.participant_name ?? 'User';
 
@@ -27,23 +31,21 @@ export async function POST(request: NextRequest) {
     const roomService = new RoomServiceClient(httpUrl, apiKey, apiSecret);
     try {
       await roomService.createRoom({ name: roomName });
-      console.log('Room created:', roomName);
+      console.log('Realtime vision room created:', roomName);
     } catch (err: unknown) {
-      // Room might already exist, that's ok
       console.log('Room creation note:', err instanceof Error ? err.message : 'Room may already exist');
     }
 
-    // Explicitly dispatch the agent to the room
+    // Dispatch the Python realtime vision agent
     const agentDispatch = new AgentDispatchClient(httpUrl, apiKey, apiSecret);
     try {
-      // Dispatch Python voice agent
-      await agentDispatch.createDispatch(roomName, 'voice-agent-py');
-      console.log('Python voice agent dispatched to room:', roomName);
+      await agentDispatch.createDispatch(roomName, 'realtime-vision-agent');
+      console.log('Python realtime vision agent dispatched to room:', roomName);
     } catch (err: unknown) {
       console.error('Agent dispatch error:', err instanceof Error ? err.message : err);
     }
 
-    // Create token for the user
+    // Create token for the user with video permissions
     const at = new AccessToken(apiKey, apiSecret, {
       identity: participantIdentity,
       name: participantName,
@@ -70,7 +72,7 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
-    console.error('Error generating token:', error);
+    console.error('Error generating realtime vision token:', error);
     return NextResponse.json(
       { error: 'Failed to generate token' },
       { status: 500 }
