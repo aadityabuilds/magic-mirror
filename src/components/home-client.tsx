@@ -187,7 +187,7 @@ function TranscriptDisplay() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.3 }}
-      className="fixed top-[58%] left-1/2 -translate-x-1/2 w-full max-w-2xl mx-auto text-center px-6 z-50 pointer-events-none"
+      className="w-full max-w-2xl mx-auto text-center px-6"
     >
       <p className="text-xl md:text-2xl font-light leading-relaxed tracking-wide">
         {displayedWords.map((word, index) => {
@@ -205,7 +205,7 @@ function TranscriptDisplay() {
               }}
               className="inline-block mr-[0.3em]"
               style={{
-                color: isLastWord ? '#ffffff' : 'rgba(255, 255, 255, 0.5)',
+                color: isLastWord ? '#ffffff' : 'rgba(255, 255, 255, 0.8)',
               }}
             >
               {word}
@@ -217,11 +217,17 @@ function TranscriptDisplay() {
   );
 }
 
-// Agent Audio Orb - reacts to agent's voice
-function AgentAudioOrb() {
+// Agent Audio Provider - extracts agent audio stream from LiveKit room
+function AgentAudioProvider({ 
+  onAudioStateChange 
+}: { 
+  onAudioStateChange: (stream: MediaStream | null, isSpeaking: boolean) => void 
+}) {
   const room = useRoomContext();
-  const [agentAudioStream, setAgentAudioStream] = useState<MediaStream | null>(null);
-  const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
+  
+  // Don't run if room is not connected yet
+  if (room.state !== 'connected') return null;
+
   const audioContextRef = useRef<AudioContext | null>(null);
   
   // Get remote audio tracks (agent's audio)
@@ -238,13 +244,11 @@ function AgentAudioOrb() {
       
       if (mediaStreamTrack) {
         const stream = new MediaStream([mediaStreamTrack]);
-        setAgentAudioStream(stream);
-        setIsAgentSpeaking(true);
+        onAudioStateChange(stream, true);
         console.log("Agent audio stream created");
       }
     } else {
-      setAgentAudioStream(null);
-      setIsAgentSpeaking(false);
+      onAudioStateChange(null, false);
     }
     
     return () => {
@@ -253,19 +257,24 @@ function AgentAudioOrb() {
         audioContextRef.current = null;
       }
     };
-  }, [remoteAudioTrack]);
+  }, [remoteAudioTrack, onAudioStateChange]);
 
   // Listen for track mute/unmute events to detect when agent is speaking
   useEffect(() => {
     if (!room) return;
 
     const handleTrackMuted = () => {
-      setIsAgentSpeaking(false);
+      onAudioStateChange(null, false);
     };
 
     const handleTrackUnmuted = () => {
-      if (remoteAudioTrack) {
-        setIsAgentSpeaking(true);
+      if (remoteAudioTrack?.publication?.track) {
+        const track = remoteAudioTrack.publication.track;
+        const mediaStreamTrack = track.mediaStreamTrack;
+        if (mediaStreamTrack) {
+          const stream = new MediaStream([mediaStreamTrack]);
+          onAudioStateChange(stream, true);
+        }
       }
     };
 
@@ -276,33 +285,9 @@ function AgentAudioOrb() {
       room.off(RoomEvent.TrackMuted, handleTrackMuted);
       room.off(RoomEvent.TrackUnmuted, handleTrackUnmuted);
     };
-  }, [room, remoteAudioTrack]);
+  }, [room, remoteAudioTrack, onAudioStateChange]);
 
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.8 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.8 }}
-      transition={{ duration: 0.5, ease: "easeOut" }}
-      className="fixed top-[30%] left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none"
-    >
-      <SiriOrb
-        size="180px"
-        audioStream={agentAudioStream}
-        isListening={isAgentSpeaking}
-        sensitivity={0.9}
-        minScale={1}
-        maxScale={1.3}
-        smoothing={0.92}
-        colors={{
-          bg: "oklch(10% 0.02 264.695)",
-          c1: "oklch(70% 0.25 200)", // Cyan
-          c2: "oklch(75% 0.20 280)", // Purple
-          c3: "oklch(72% 0.22 180)", // Teal
-        }}
-      />
-    </motion.div>
-  );
+  return null;
 }
 
 interface TokenResponse {
@@ -325,6 +310,16 @@ export function HomeClient() {
   const [serverUrl, setServerUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [wakeWordDetected, setWakeWordDetected] = useState(false);
+  
+  // Unified orb audio state
+  const [agentAudioStream, setAgentAudioStream] = useState<MediaStream | null>(null);
+  const [isAgentSpeaking, setIsAgentSpeaking] = useState(false);
+  
+  // Callback for AgentAudioProvider
+  const handleAgentAudioStateChange = useCallback((stream: MediaStream | null, isSpeaking: boolean) => {
+    setAgentAudioStream(stream);
+    setIsAgentSpeaking(isSpeaking);
+  }, []);
   
   // Porcupine wake word detection
   const {
@@ -464,6 +459,8 @@ export function HomeClient() {
     setIsBlurActive(false);
     setConnectionMode(null);
     setWakeWordDetected(false);
+    setAgentAudioStream(null);
+    setIsAgentSpeaking(false);
     connectingAfterWakeWordRef.current = false;
 
     // Resume wake word listening after disconnect with delay to ensure mic is released
@@ -477,7 +474,7 @@ export function HomeClient() {
 
   return (
     <div className="relative flex flex-col items-center justify-center min-h-screen overflow-hidden bg-black text-white p-4">
-      <ShaderBlurOverlay isActive={isBlurActive} />
+      <ShaderBlurOverlay isActive={false} />
       
       {/* LiveKit Room - only render when connected */}
       {isConnected && token && serverUrl && (
@@ -506,44 +503,36 @@ export function HomeClient() {
         >
           <RoomAudioRenderer />
           <MediaPublisher enableVideo={connectionMode === "vision"} />
-          <AgentAudioOrb />
-          <TranscriptDisplay />
-          <AnimatePresence>
-            {connectionMode === "vision" && <LocalVideoPreview />}
-          </AnimatePresence>
+          <AgentAudioProvider onAudioStateChange={handleAgentAudioStateChange} />
+          <div className="fixed bottom-15 left-1/2 -translate-x-1/2 z-50 pointer-events-none flex flex-col items-center gap-4">
+            <TranscriptDisplay />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8, y: 100 }}
+              animate={wakeWordDetected || isConnected ? { opacity: 1, scale: 1, y: 0 } : { opacity: 0, scale: 0.8, y: 100 }}
+              exit={{ opacity: 0, scale: 0.8, y: 100 }}
+              transition={{ duration: 0.8, ease: "easeOut" }}
+            >
+              <SiriOrb
+                size="180px"
+                audioStream={agentAudioStream}
+                isListening={isConnected ? isAgentSpeaking : false}
+                sensitivity={0.9}
+                minScale={1}
+                maxScale={1.3}
+                smoothing={0.92}
+                colors={{
+                  bg: "oklch(10% 0.02 264.695)",
+                  c1: "oklch(70% 0.25 200)", // Cyan
+                  c2: "oklch(75% 0.20 280)", // Purple
+                  c3: "oklch(72% 0.22 180)", // Teal
+                }}
+              />
+            </motion.div>
+          </div>
         </LiveKitRoom>
       )}
 
       <main className="relative z-50 flex flex-col items-center gap-8 text-center">
-        {/* Idle Orb - shown when not connected */}
-        {!isConnected && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8, y: 300 }}
-            animate={wakeWordDetected ? { opacity: 1, scale: 1, y: 100 } : { opacity: 0, scale: 0.8, y: 300 }}
-            exit={{ opacity: 0, scale: 0.8, y: 300 }}
-            transition={{ duration: 0.8, ease: "easeOut" }}
-            className="mb-4"
-          >
-            <SiriOrb
-              size="160px"
-              isListening={isPorcupineListening}
-              sensitivity={0.5}
-              minScale={1}
-              maxScale={1.15}
-              smoothing={0.95}
-              colors={{
-                bg: "oklch(8% 0.01 264.695)",
-                c1: "oklch(60% 0.20 200)", // Cyan (dimmer)
-                c2: "oklch(65% 0.15 280)", // Purple (dimmer)
-                c3: "oklch(62% 0.18 180)", // Teal (dimmer)
-              }}
-            />
-          </motion.div>
-        )}
-
-
-
-
         {error && (
           <motion.p
             initial={{ opacity: 0, y: 10 }}

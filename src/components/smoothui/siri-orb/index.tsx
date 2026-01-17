@@ -201,7 +201,7 @@ const SiriOrb: React.FC<SiriOrbProps> = ({
 
   return (
     <div
-      className={cn("siri-orb", className)}
+      className={cn("siri-orb", className, isListening ? "speaking" : "")}
       style={
         {
           width: size,
@@ -325,6 +325,21 @@ const SiriOrb: React.FC<SiriOrbProps> = ({
         @media (prefers-reduced-motion: reduce) {
           .siri-orb::before {
             animation: none;
+          }
+        }
+      `}</style>
+
+      <style>{`
+        .siri-orb.speaking {
+          animation: speaking-pulse 1s ease-in-out infinite;
+        }
+
+        @keyframes speaking-pulse {
+          0%, 100% {
+            transform: scale(var(--scale)) translateZ(0);
+          }
+          50% {
+            transform: scale(calc(var(--scale) * 1.05)) translateZ(0);
           }
         }
       `}</style>
